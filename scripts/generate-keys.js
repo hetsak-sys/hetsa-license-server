@@ -1,10 +1,16 @@
 // Run with: npm run generate-keys -- 10
-// (generates 10 new unused keys and prints + inserts them)
+// (generates 10 new unused standard keys and prints + inserts them)
+// Add --institutional to generate institutional (manual-swap-only) seats:
+//   npm run generate-keys -- 5 --institutional
 import 'dotenv/config';
 import { pool, ensureSchema } from '../src/db.js';
 import { generateLicenseKey } from '../src/licenseKey.js';
 
-const count = parseInt(process.argv[2], 10) || 10;
+const args = process.argv.slice(2);
+const isInstitutional = args.includes('--institutional');
+const countArg = args.find((a) => !a.startsWith('--'));
+const count = parseInt(countArg, 10) || 10;
+const licenseType = isInstitutional ? 'institutional' : 'standard';
 
 async function main() {
   await ensureSchema();
@@ -23,12 +29,15 @@ async function main() {
     if (!key) {
       throw new Error('Could not generate a unique key after 5 attempts — very unusual, check the charset/length.');
     }
-    await pool.query('INSERT INTO licenses (license_key) VALUES ($1)', [key]);
+    await pool.query('INSERT INTO licenses (license_key, license_type) VALUES ($1, $2)', [key, licenseType]);
     keys.push(key);
   }
 
-  console.log(`Generated ${keys.length} new license key(s):\n`);
+  console.log(`Generated ${keys.length} new ${licenseType} license key(s):\n`);
   keys.forEach(k => console.log(k));
+  if (isInstitutional) {
+    console.log('\nNote: institutional keys are manual-swap-only — /api/reactivate will reject self-service moves for these; contact hetsak@gmail.com to move a seat.');
+  }
 
   await pool.end();
 }

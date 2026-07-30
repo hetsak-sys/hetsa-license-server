@@ -39,6 +39,42 @@ export async function ensureSchema() {
     );
   `);
 
+  // Added 2026-07-30 for self-service reactivation (Option B). Existing rows
+  // default to 'standard' with no backfill needed — ADD COLUMN IF NOT EXISTS
+  // keeps this safe to run on every boot alongside the CREATE TABLEs above.
+  // Institutional seats are flagged at generation time (generate-keys.js
+  // --institutional) and are checked by /api/reactivate to stay manual-only,
+  // per the locked spec.
+  await pool.query(`
+    ALTER TABLE licenses
+      ADD COLUMN IF NOT EXISTS license_type TEXT NOT NULL DEFAULT 'standard'
+        CHECK (license_type IN ('standard', 'institutional'));
+  `);
+
+  // Added 2026-07-30 for self-service reactivation (Option B). One row per
+  // completed device swap; /api/reactivate counts rows in the trailing
+  // 30-day window (see src/reactivation.js) to enforce the 2-per-30-days
+  // cooldown. Append-only audit trail — never updated or deleted, so it
+  // also doubles as a support/dispute record if a key's swap history is
+  // ever questioned.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS device_swaps (
+      id            BIGSERIAL PRIMARY KEY,
+      license_key   TEXT NOT NULL REFERENCES licenses(license_key),
+      old_device_id TEXT,
+      new_device_id TEXT NOT NULL,
+      swapped_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  // Powers the rolling-window count in /api/reactivate — one query, indexed
+  // lookup, rather than a full table scan per reactivation attempt.
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_device_swaps_license_key_swapped_at
+      ON device_swaps(license_key, swapped_at);
+  `);
+
+
   // Fast lookup for "does this device already own an activated license" —
   // this is what makes /api/verify's paid-status check cheap.
   await pool.query(`
