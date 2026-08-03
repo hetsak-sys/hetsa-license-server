@@ -74,12 +74,34 @@ export async function ensureSchema() {
       ON device_swaps(license_key, swapped_at);
   `);
 
-
   // Fast lookup for "does this device already own an activated license" —
   // this is what makes /api/verify's paid-status check cheap.
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_licenses_activated_device
       ON licenses(activated_device_id)
       WHERE activated_device_id IS NOT NULL;
+  `);
+
+  // Added 2026-08-03 for the in-app Suggestion Box. Standalone table, no
+  // foreign keys to devices/licenses — feedback is accepted from any
+  // device, licensed or trial, so it's deliberately not joined to the
+  // licensing schema. `emailed` tracks whether the Gmail notification in
+  // feedbackRoute.js succeeded; a failed email never blocks the DB write,
+  // so this flag is the fallback way to find any notification that
+  // silently failed (SELECT * FROM feedback WHERE emailed = false).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS feedback (
+      id           SERIAL PRIMARY KEY,
+      message      TEXT NOT NULL,
+      contact      TEXT,
+      device_id    TEXT,
+      app_version  TEXT,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      emailed      BOOLEAN NOT NULL DEFAULT false
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback (created_at DESC);
   `);
 }

@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { pool, ensureSchema } from './db.js';
 import { isValidKeyFormat } from './licenseKey.js';
 import { evaluateSwapEligibility, buildLockoutMessage } from './reactivation.js';
+import feedbackRoute from './feedbackRoute.js';
 
 const TRIAL_DAYS = 90;
 const PORT = process.env.PORT || 3000;
@@ -29,6 +30,8 @@ app.use('/api', rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 }));
+
+app.use(feedbackRoute);
 
 function requireDeviceId(req, res, next) {
   const { deviceId } = req.body || {};
