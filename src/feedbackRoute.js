@@ -1,6 +1,14 @@
+import dns from 'dns';
 import express from 'express';
 import nodemailer from 'nodemailer';
 import { pool } from './db.js';
+
+// Fix for ENETUNREACH connecting to Gmail's SMTP servers on Render: Node
+// resolves smtp.gmail.com's IPv6 address first by default, but Render's
+// outbound network can't route IPv6, and Node doesn't automatically fall
+// back to IPv4 on that failure. Forcing IPv4-first DNS resolution process-
+// wide fixes this. (Node 18+; see https://nodejs.org/api/dns.html#dnssetdefaultresultorderorder)
+dns.setDefaultResultOrder('ipv4first');
 
 const router = express.Router();
 
@@ -9,8 +17,16 @@ const router = express.Router();
 // 16-char Gmail App Password, generated at
 // https://myaccount.google.com/apppasswords — requires 2-Step Verification
 // enabled on the account first). NOT the real Gmail account password.
+//
+// host/port/secure are specified explicitly (rather than the `service:
+// 'gmail'` shorthand) so `family: 4` can be passed through to force the
+// underlying socket connection over IPv4 — belt-and-suspenders alongside
+// the dns.setDefaultResultOrder() call above.
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
+  family: 4,
   auth: {
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_APP_PASSWORD,
